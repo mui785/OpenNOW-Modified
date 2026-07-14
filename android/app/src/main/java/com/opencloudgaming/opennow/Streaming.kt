@@ -4012,20 +4012,42 @@ class NativeStreamClient(
     private fun createRumbleEffect(amplitude: Int): VibrationEffect =
         VibrationEffect.createOneShot(RUMBLE_EFFECT_MS, amplitude.coerceIn(1, 255))
 
+    private fun createPhoneRumbleEffect(vibrator: Vibrator?, amplitude: Int): VibrationEffect {
+        val hasAmp = vibrator?.hasAmplitudeControl() == true
+        val amp = if (hasAmp) amplitude.coerceIn(1, 255) else VibrationEffect.DEFAULT_AMPLITUDE
+        return VibrationEffect.createOneShot(RUMBLE_EFFECT_MS, amp)
+    }
+
     private fun vibratePhoneRumble(profile: RumbleEffectProfile) {
         if (!phoneRumbleSupportLogged) {
             phoneRumbleSupportLogged = true
             NativeInputDiagnostics.add("gamepad haptics using phone fallback")
         }
+        @Suppress("DEPRECATION")
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            appContext.getSystemService(VibratorManager::class.java)?.defaultVibrator
+        } else {
+            appContext.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        } ?: return
+
+        val effect = createPhoneRumbleEffect(vibrator, profile.combinedAmplitude)
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val manager = appContext.getSystemService(VibratorManager::class.java)
             if (manager != null && manager.vibratorIds.any { manager.getVibrator(it).hasVibrator() }) {
-                manager.vibrate(CombinedVibration.createParallel(createRumbleEffect(profile.combinedAmplitude)))
+                val attrs = android.os.VibrationAttributes.Builder()
+                    .setUsage(android.os.VibrationAttributes.USAGE_PHYSICAL_EMULATION)
+                    .build()
+                manager.vibrate(CombinedVibration.createParallel(effect), attrs)
                 return
             }
         }
+        val audioAttrs = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_GAME)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
         @Suppress("DEPRECATION")
-        (appContext.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator)?.vibrate(createRumbleEffect(profile.combinedAmplitude))
+        vibrator.vibrate(effect, audioAttrs)
     }
 
     @Suppress("DEPRECATION")
