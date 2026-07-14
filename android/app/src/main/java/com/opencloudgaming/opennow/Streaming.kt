@@ -831,6 +831,9 @@ object NativeStreamInputRouter {
         val current = client ?: return false
         if (streamUiActive) return false
         val isDirectClick = mouseDirectClick && event.isExternalMousePointerEvent()
+        // When Direct Click is active, finger touch events must NOT be processed here —
+        // they would duplicate the click already dispatched via dispatchExternalMouseTouch.
+        if (mouseDirectClick && event.isFingerTouchEvent()) return false
         if (!event.isFingerTouchEvent() && !isDirectClick) return false
         updateNativeUiTouchPointers(event, width, height)
         return touchMouseState.handle(
@@ -1859,6 +1862,11 @@ private class TouchMouseState {
                 MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                     val index = if (event.actionMasked == MotionEvent.ACTION_DOWN) 0 else event.actionIndex
                     if (index in 0 until event.pointerCount && event.getPointerId(index) !in ignoredPointerIds) {
+                        // Guard: if a click is already in-flight (activePointerId held), silently
+                        // absorb this extra DOWN without sending another button-down to the server.
+                        // This prevents the double-down / stuck-button glitch on Direct Click mode.
+                        if (activePointerId >= 0) return true
+
                         activePointerId = event.getPointerId(index)
                         val touchX = event.getX(index)
                         val touchY = event.getY(index)
