@@ -632,9 +632,17 @@ object NativeStreamInputRouter {
     @Volatile
     private var touchMouseEnabled = false
     @Volatile
+    private var mouseDirectClick = false
+    @Volatile
+    private var stretchToFill = false
+    @Volatile
+    private var renderingAspectRatio = 0f
+    @Volatile
     private var captureAllTouch = false
     @Volatile
     private var systemMenuHandler: (() -> Unit)? = null
+    @Volatile
+    private var onToggleDirectClickCallback: (() -> Unit)? = null
     @Volatile
     private var systemBackHandler: (() -> Unit)? = null
     @Volatile
@@ -669,6 +677,18 @@ object NativeStreamInputRouter {
         }
     }
 
+    fun setMouseDirectClick(enabled: Boolean) {
+        mouseDirectClick = enabled
+    }
+
+    fun setStretchToFill(enabled: Boolean) {
+        stretchToFill = enabled
+    }
+
+    fun setRenderingAspectRatio(ratio: Float) {
+        renderingAspectRatio = ratio
+    }
+
     fun setCaptureAllTouch(enabled: Boolean) {
         captureAllTouch = enabled
     }
@@ -679,6 +699,10 @@ object NativeStreamInputRouter {
 
     fun setSystemBackHandler(handler: (() -> Unit)?) {
         systemBackHandler = handler
+    }
+
+    fun setOnToggleDirectClickCallback(handler: (() -> Unit)?) {
+        onToggleDirectClickCallback = handler
     }
 
     fun setStreamUiActive(active: Boolean) {
@@ -778,14 +802,15 @@ object NativeStreamInputRouter {
         nativeUiTouchPointerIds.isNotEmpty()
 
     fun shouldForwardTouchBeforeViews(event: MotionEvent, width: Int, height: Int): Boolean {
+        val isDirectClick = mouseDirectClick && event.isExternalMousePointerEvent()
         if (
             client == null ||
             streamUiActive ||
-            !touchMouseEnabled ||
+            !(touchMouseEnabled || isDirectClick) ||
             !captureAllTouch ||
             width <= 0 ||
             height <= 0 ||
-            !event.isFingerTouchEvent()
+            !(event.isFingerTouchEvent() || isDirectClick)
         ) {
             return false
         }
@@ -799,21 +824,32 @@ object NativeStreamInputRouter {
             nativeUiTouchPointerIds.isEmpty()
 
     fun dispatchTouch(event: MotionEvent, width: Int, height: Int): Boolean {
+        if (event.pointerCount == 3 && event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
+            onToggleDirectClickCallback?.invoke()
+            return true
+        }
         val current = client ?: return false
         if (streamUiActive) return false
-        if (!event.isFingerTouchEvent()) return false
+        val isDirectClick = mouseDirectClick && event.isExternalMousePointerEvent()
+        if (!event.isFingerTouchEvent() && !isDirectClick) return false
         updateNativeUiTouchPointers(event, width, height)
         return touchMouseState.handle(
             event = event,
-            enabled = touchMouseEnabled && width > 0 && height > 0,
+            enabled = (touchMouseEnabled || isDirectClick) && width > 0 && height > 0,
             client = current,
             ignoredPointerIds = nativeUiTouchPointerIds,
+            directClick = mouseDirectClick,
+            width = width,
+            height = height,
+            stretchToFill = stretchToFill,
+            renderingAspectRatio = renderingAspectRatio,
         )
     }
 
     fun dispatchExternalMouseTouch(event: MotionEvent, width: Int, height: Int): Boolean {
         if (streamUiActive) return false
         if (!event.isExternalMousePointerEvent()) return false
+        if (mouseDirectClick) return false // Handled in dispatchTouch instead
         if (shouldPassTouchToNativeUi(event, width, height)) return false
         return client?.dispatchMotion(event) == true
     }
@@ -1759,18 +1795,139 @@ private class TouchMouseState {
     private var lastTapTimeMs = Long.MIN_VALUE
     private var lastTapX = Float.NaN
     private var lastTapY = Float.NaN
+    private var virtualCursorX = 0f
+    private var virtualCursorY = 0f
+    private var virtualCursorInitialized = false
 
     fun reset(client: NativeStreamClient?) {
         if (selecting) client?.setTouchMouseButton(false)
         activePointerId = -1
         selecting = false
         doubleTapDragCandidate = false
+        virtualCursorInitialized = false
     }
 
-    fun handle(event: MotionEvent, enabled: Boolean, client: NativeStreamClient, ignoredPointerIds: Set<Int>): Boolean {
+    fun handle(
+        event: MotionEvent,
+        enabled: Boolean,
+        client: NativeStreamClient,
+        ignoredPointerIds: Set<Int>,
+        directClick: Boolean = false,
+        width: Int = 0,
+        height: Int = 0,
+        stretchToFill: Boolean = false,
+        renderingAspectRatio: Float = 0f,
+    ): Boolean {
         if (!enabled) {
             reset(client)
             return false
+        }
+
+        if (directClick) {
+            val parts = client.settings.resolution.split("x")
+            val streamWidth = parts.getOrNull(0)?.toIntOrNull() ?: 1920
+            val streamHeight = parts.getOrNull(1)?.toIntOrNull() ?: 1080
+
+            var videoWidth = width.toFloat()
+            var videoHeight = height.toFloat()
+            var offsetX = 0f
+            var offsetY = 0f
+
+            if (!stretchToFill && width > 0 && height > 0) {
+                val streamAspectRatio = if (renderingAspectRatio > 0f) renderingAspectRatio else (streamWidth.toFloat() / streamHeight.toFloat())
+                val screenAspectRatio = width.toFloat() / height.toFloat()
+                if (screenAspectRatio > streamAspectRatio) {
+                    // Pillarboxed (black bars left/right)
+                    videoWidth = height * streamAspectRatio
+                    videoHeight = height.toFloat()
+                    offsetX = (width - videoWidth) / 2f
+                } else if (screenAspectRatio < streamAspectRatio) {
+                    // Letterboxed (black bars top/bottom)
+                    videoWidth = width.toFloat()
+                    videoHeight = width / streamAspectRatio
+                    offsetY = (height - videoHeight) / 2f
+                }
+            }
+
+            if (!virtualCursorInitialized) {
+                virtualCursorX = streamWidth / 2f
+                virtualCursorY = streamHeight / 2f
+                virtualCursorInitialized = true
+            }
+
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                    val index = if (event.actionMasked == MotionEvent.ACTION_DOWN) 0 else event.actionIndex
+                    if (index in 0 until event.pointerCount && event.getPointerId(index) !in ignoredPointerIds) {
+                        activePointerId = event.getPointerId(index)
+                        val touchX = event.getX(index)
+                        val touchY = event.getY(index)
+                        val rx = touchX - offsetX
+                        val ry = touchY - offsetY
+                        val targetX = if (videoWidth > 0) (rx / videoWidth * streamWidth).coerceIn(0f, streamWidth.toFloat()) else 0f
+                        val targetY = if (videoHeight > 0) (ry / videoHeight * streamHeight).coerceIn(0f, streamHeight.toFloat()) else 0f
+
+                        val dx = targetX - virtualCursorX
+                        val dy = targetY - virtualCursorY
+
+                        val idx = dx.roundToInt()
+                        val idy = dy.roundToInt()
+
+                        if (idx != 0 || idy != 0) {
+                            client.sendRawMouseMove(idx, idy)
+                            virtualCursorX = (virtualCursorX + idx).coerceIn(0f, streamWidth.toFloat())
+                            virtualCursorY = (virtualCursorY + idy).coerceIn(0f, streamHeight.toFloat())
+                        }
+
+                        client.setTouchMouseButton(true)
+                    }
+                    return true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (activePointerId >= 0) {
+                        val index = event.findPointerIndex(activePointerId)
+                        if (index >= 0) {
+                            val touchX = event.getX(index)
+                            val touchY = event.getY(index)
+                            val rx = touchX - offsetX
+                            val ry = touchY - offsetY
+                            val targetX = if (videoWidth > 0) (rx / videoWidth * streamWidth).coerceIn(0f, streamWidth.toFloat()) else 0f
+                            val targetY = if (videoHeight > 0) (ry / videoHeight * streamHeight).coerceIn(0f, streamHeight.toFloat()) else 0f
+
+                            val dx = targetX - virtualCursorX
+                            val dy = targetY - virtualCursorY
+
+                            val idx = dx.roundToInt()
+                            val idy = dy.roundToInt()
+
+                            if (idx != 0 || idy != 0) {
+                                client.sendRawMouseMove(idx, idy)
+                                virtualCursorX = (virtualCursorX + idx).coerceIn(0f, streamWidth.toFloat())
+                                virtualCursorY = (virtualCursorY + idy).coerceIn(0f, streamHeight.toFloat())
+                            }
+                        }
+                    }
+                    return true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
+                    val index = if (event.actionMasked == MotionEvent.ACTION_UP) {
+                        event.findPointerIndex(activePointerId).takeIf { it >= 0 } ?: event.firstPointerIndexNotIn(ignoredPointerIds)
+                    } else {
+                        event.actionIndex
+                    }
+                    if (index in 0 until event.pointerCount && event.getPointerId(index) == activePointerId) {
+                        client.setTouchMouseButton(false)
+                        activePointerId = -1
+                    }
+                    return true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    client.setTouchMouseButton(false)
+                    activePointerId = -1
+                    return true
+                }
+            }
+            return true
         }
 
         when (event.actionMasked) {
@@ -1957,7 +2114,7 @@ class NativeStreamClient(
     private var statsJob: Job? = null
     private var iceRecoveryJob: Job? = null
     private var offerTimeoutJob: Job? = null
-    private var settings: StreamSettings = StreamSettings()
+    internal var settings: StreamSettings = StreamSettings()
     private var session: SessionInfo? = null
     private var transportGeneration = 0
     private var reconnectAttempts = 0
@@ -2305,6 +2462,13 @@ class NativeStreamClient(
             return dispatchMouseLikePointer(event)
         }
         return false
+    }
+
+    fun sendRawMouseMove(dx: Int, dy: Int, partiallyReliable: Boolean = false): Boolean {
+        return sendInput(
+            inputEncoder.encodeMouseMove(dx, dy),
+            partiallyReliable = partiallyReliable,
+        )
     }
 
     fun sendTouchMouseMove(dx: Int, dy: Int, partiallyReliable: Boolean = true): Boolean {
