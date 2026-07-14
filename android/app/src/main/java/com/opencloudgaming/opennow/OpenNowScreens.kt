@@ -5212,7 +5212,7 @@ private fun StreamScreen(state: OpenNowUiState, viewModel: OpenNowViewModel) {
                 TouchOverlay(
                     client = client,
                     touch = state.settings.androidTouch.copy(enabled = true),
-                    onButtonTone = playButtonTone,
+                    onButtonTone = {},
                     layoutEditing = touchLayoutEditing,
                     onSaveAllOffsets = { allOffsets ->
                         var touch = state.settings.androidTouch
