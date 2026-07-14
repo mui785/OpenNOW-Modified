@@ -2125,6 +2125,7 @@ class NativeStreamClient(
     private var transportGeneration = 0
     private var reconnectAttempts = 0
     private var videoSafeFallbackApplied = false
+    private var sessionHasRenderedFrame = false
     private var sessionRecoveryRequested = false
     private var lastIceState: PeerConnection.IceConnectionState? = null
     private var audioMuted = false
@@ -2230,6 +2231,7 @@ class NativeStreamClient(
             val rendererEvents = object : RendererCommon.RendererEvents {
                 override fun onFirstFrameRendered() {
                     firstVideoFrameWatchdog.markRendered()
+                    sessionHasRenderedFrame = true
                     NativeInputDiagnostics.add("video renderer first frame codec=${this@NativeStreamClient.settings.codec}")
                 }
 
@@ -3176,6 +3178,7 @@ class NativeStreamClient(
         val currentSettings = settings
         if (
             reconnectAttempts >= 1 &&
+            !sessionHasRenderedFrame &&
             requestSafeVideoFallback(
                 message = "$reason. Recreating the cloud session with safe H264 profile.",
                 diagnosticReason = "transport reconnect",
@@ -3506,6 +3509,7 @@ class NativeStreamClient(
             firstVideoFrameWatchdog.shouldRecover(SystemClock.elapsedRealtime(), snapshot.bytesReceived, connected)
         ) {
             if (
+                !sessionHasRenderedFrame &&
                 requestSafeVideoFallback(
                     message = "Video packets arrived but no frame rendered; restarting with safe H264 profile",
                     diagnosticReason = "first frame timeout",
@@ -3528,6 +3532,7 @@ class NativeStreamClient(
             }
             is StreamLivenessAction.RestartTransport -> {
                 if (
+                    !sessionHasRenderedFrame &&
                     requestSafeVideoFallback(
                         message = "Decoder stalled; restarting with safe H264 profile",
                         diagnosticReason = "media stall",
