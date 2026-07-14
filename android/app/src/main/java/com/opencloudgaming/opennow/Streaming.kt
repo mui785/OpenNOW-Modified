@@ -641,8 +641,7 @@ object NativeStreamInputRouter {
     private var captureAllTouch = false
     @Volatile
     private var systemMenuHandler: (() -> Unit)? = null
-    @Volatile
-    private var onToggleDirectClickCallback: (() -> Unit)? = null
+
     @Volatile
     private var systemBackHandler: (() -> Unit)? = null
     @Volatile
@@ -701,9 +700,6 @@ object NativeStreamInputRouter {
         systemBackHandler = handler
     }
 
-    fun setOnToggleDirectClickCallback(handler: (() -> Unit)?) {
-        onToggleDirectClickCallback = handler
-    }
 
     fun setStreamUiActive(active: Boolean) {
         streamUiActive = active
@@ -824,10 +820,6 @@ object NativeStreamInputRouter {
             nativeUiTouchPointerIds.isEmpty()
 
     fun dispatchTouch(event: MotionEvent, width: Int, height: Int): Boolean {
-        if (event.pointerCount == 3 && event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
-            onToggleDirectClickCallback?.invoke()
-            return true
-        }
         val current = client ?: return false
         if (streamUiActive) return false
         val isDirectClick = mouseDirectClick && event.isExternalMousePointerEvent()
