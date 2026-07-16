@@ -5229,6 +5229,16 @@ private fun StreamScreen(state: OpenNowUiState, viewModel: OpenNowViewModel) {
                         }
                         viewModel.updateSettings(state.settings.copy(androidTouch = touch))
                     },
+                    onSaveCustomLayout = { newButtons, newSticks ->
+                        viewModel.updateSettings(
+                            state.settings.copy(
+                                androidTouch = state.settings.androidTouch.copy(
+                                    customButtons = newButtons,
+                                    customSticks = newSticks,
+                                ),
+                            ),
+                        )
+                    },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
             }
@@ -8450,6 +8460,7 @@ private fun TouchOverlay(
     onButtonTone: () -> Unit,
     layoutEditing: Boolean,
     onSaveAllOffsets: (Map<String, TouchOffset>) -> Unit,
+    onSaveCustomLayout: (List<CustomButtonSpec>, List<CustomStickSpec>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val opacity = touch.opacity
@@ -8516,7 +8527,7 @@ private fun TouchOverlay(
                     CustomTouchOverlay(
                         client = client,
                         touch = touch,
-                        onLayoutChange = { newButtons, newSticks -> },
+                        onLayoutChange = onSaveCustomLayout,
                     )
                 } else {
                     val landscape = maxWidth > maxHeight
