@@ -8511,41 +8511,50 @@ private fun TouchOverlay(
                     bottom = touch.bottomPaddingDp.dp,
                 ),
         ) {
-            if (touch.enabled) {
-                val landscape = maxWidth > maxHeight
-                val suffix = if (landscape) "_landscape" else "_portrait"
-                val getOrientationLocalOffset = { key: String -> getLocalOffset(key + suffix) }
-                val onOrientationLocalOffsetChange = { key: String, x: Float, y: Float ->
-                    onLocalOffsetChange(key + suffix, x, y)
-                }
-
-                if (landscape) {
-                    LandscapeTouchControls(
+                        if (touch.enabled) {
+                if (touch.useCustomLayout) {
+                    CustomTouchOverlay(
                         client = client,
-                        opacity = opacity,
-                        layoutScale = layoutScale,
-                        buttonScale = buttonScale,
-                        stickScale = stickScale,
-                        viewportHeight = maxHeight,
-                        layoutEditing = layoutEditing,
-                        getLocalOffset = getOrientationLocalOffset,
-                        onLocalOffsetChange = onOrientationLocalOffsetChange,
-                        onButtonTone = onButtonTone,
+                        touch = touch,
+                        onLayoutChange = { newButtons, newSticks -> },
                     )
                 } else {
-                    PortraitTouchControls(
-                        client = client,
-                        opacity = opacity,
-                        layoutScale = layoutScale,
-                        buttonScale = buttonScale,
-                        stickScale = stickScale,
-                        layoutEditing = layoutEditing,
-                        getLocalOffset = getOrientationLocalOffset,
-                        onLocalOffsetChange = onOrientationLocalOffsetChange,
-                        onButtonTone = onButtonTone,
-                    )
+                    val landscape = maxWidth > maxHeight
+                    val suffix = if (landscape) "_landscape" else "_portrait"
+                    val getOrientationLocalOffset = { key: String -> getLocalOffset(key + suffix) }
+                    val onOrientationLocalOffsetChange = { key: String, x: Float, y: Float ->
+                        onLocalOffsetChange(key + suffix, x, y)
+                    }
+
+                    if (landscape) {
+                        LandscapeTouchControls(
+                            client = client,
+                            opacity = opacity,
+                            layoutScale = layoutScale,
+                            buttonScale = buttonScale,
+                            stickScale = stickScale,
+                            viewportHeight = maxHeight,
+                            layoutEditing = layoutEditing,
+                            getLocalOffset = getOrientationLocalOffset,
+                            onLocalOffsetChange = onOrientationLocalOffsetChange,
+                            onButtonTone = onButtonTone,
+                        )
+                    } else {
+                        PortraitTouchControls(
+                            client = client,
+                            opacity = opacity,
+                            layoutScale = layoutScale,
+                            buttonScale = buttonScale,
+                            stickScale = stickScale,
+                            layoutEditing = layoutEditing,
+                            getLocalOffset = getOrientationLocalOffset,
+                            onLocalOffsetChange = onOrientationLocalOffsetChange,
+                            onButtonTone = onButtonTone,
+                        )
+                    }
                 }
-            }
+                        }
+                        
         }
     }
 }
