@@ -199,6 +199,7 @@ data class AndroidTouchSettings(
     val edgePaddingDp: Float = 14f,
     val bottomPaddingDp: Float = 10f,
     val leftOffsetXDp: Float = 0f,
+    val leftOffsetYDp: Float = 0f,
     val rightOffsetXDp: Float = 0f,
     val rightOffsetYDp: Float = 0f,
     val useCustomLayout: Boolean = true,
